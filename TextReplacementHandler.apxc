@@ -1,0 +1,158 @@
+/** TextReplacementHandler
+** Created by Krizia on 04/10/2018
+** 
+** Purpose of Class: 
+** Take an input string and replace merge fields with actual values 
+** Can be used with the Outbound Email module to send merged Email Templates 
+** 
+** Prerequisites / Items to Note when using: 
+** Must update the constructor to query the object(s) you need 
+** Set consistent delimiters (e.g. "{!" as opening and "}" as closing) 
+** Run using batch class if needing to run many times (due to queries) 
+** 
+** Steps to Implement in Setup 
+** n/a
+**
+How to call: ** The Id you send in should be what links all objects/records together for the merge fields to work. (in example: the Account Id) ** 
+    TextReplacementHandler trh = new TextReplacementHandler(theId); 
+    String replaceMe = 'This is what needs to get replaced with the Account Name: {!Account.Name} ' + 
+        'and this is what needs to get replaced with the Owner name: {!User.Name} and again here we ' + 
+        'will have the Account Name: {!Account.Name}. '; 
+    String replaced = ''; 
+    replaced = trh.populateMergeFields(replaceMe, '{!', '}'); 
+    System.debug(replaceMe); 
+    System.debug(replaced); 
+**
+**/
+public class TextReplacementHandler {
+
+
+
+    //**** All necessary objects here **** 
+
+    public sObject obj1 { get; set; }
+    public Account theAccount { get; set; } 
+    public User theUser { get; set; }
+
+    //**** All necessary objects here **** 
+
+
+    
+    public TextReplacementHandler(Id recordId) {
+        //**** Get all necessary objects here **** 
+        try {
+     //     Example:   
+            sObject s1 = getAllFields(recordId, 'Account'); 
+            theAccount = new Account(); 
+            theAccount = (Account)s1;
+            System.debug(theAccount); 
+    
+            sObject s2 = getAllFields( theAccount.OwnerId, 'User'); 
+            theUser = new User(); 
+            theUser = (User)s2; 
+            System.debug(theUser); 
+     
+
+        }            
+        //**** Get all necessary objects here **** 
+        catch (Exception e) {
+            System.debug(e);
+            system.debug(e.getMessage());
+            system.debug(e.getLineNumber());
+            system.debug(e.getStackTraceString());
+        }
+    } //public TextReplacementHandler() 
+
+    
+
+    /** Query all fields from a record - can be used separately from Text Replacement 
+    ** Input: the Id of the record you need and what object it is (string) 
+    ** Output: sObject of the object type and with the record Id you chose with all of its fields (cast the returned record) 
+    **/
+    public static sObject getAllFields(Id recordId, String obj) { 
+        System.debug('TextReplacementHandler::: getAllFields:: starting method for : ' + obj + ' - ' + recordId); 
+        
+        try {
+            DescribeSObjectResult describeResult = recordId.getSObjectType().getDescribe(); 
+            List<String> fieldNames = new List<String>( describeResult.fields.getMap().keySet() );  
+            
+            String query = 'SELECT ' + String.join( fieldNames, ',' ) +   
+                ' FROM ' + obj +      
+                ' WHERE Id = :recordId ' +    
+                ' LIMIT 1 ' ;   
+            System.debug(query); 
+            
+            // return generic list of sobjects  
+            List<SObject> records = Database.query( query );    
+            System.debug(records); 
+            
+            if (records != null) return records[0]; 
+            else return null; 
+        }
+        catch (Exception e) {
+            System.debug(e);
+            system.debug(e.getMessage());
+            system.debug(e.getLineNumber());
+            system.debug(e.getStackTraceString());
+            return null; 
+        }   
+    } //public static sObject getAllFields(Id recordId, String obj)
+    
+    
+    
+    /** Replace merge fields based on the records queried in the constructor
+     ** Input: the body that has merge fields, the beginning delimiter that marks when a merge field starts, and the end delimiter for when a merge field ends 
+     ** Output: either an unmerged body (if replacements weren't found), partially merged body (if some replacements weren't found), or a totally merged body 
+     **/ 
+    public string populateMergeFields(String body, String openingDelimiter, String closingDelimiter) {   
+        System.debug('TextReplacementHandler::: populateMergeFields:: body: ' + body); 
+        if (body != null && body != ''){
+            Integer opening = body.countMatches(openingDelimiter);
+            Integer closing = body.countMatches(closingDelimiter);
+            Integer openingLen = openingDelimiter.length(); 
+            Integer closingLen = closingDelimiter.length(); 
+            System.debug(opening + ' -- ' + closing);
+        
+            //Go through each merge field to dynamically populate with actual info
+            for (Integer i = 0; i < opening; i++) {
+                Integer x = body.indexOf(openingDelimiter);
+                System.debug(x);
+                //Maximum of x unique merge fields, may have redundancies so exit if it has found all merge fields
+                if (x == -1) return body; 
+    
+                //Get the merge field
+                Integer y = body.indexOf(closingDelimiter);
+                System.debug(y);
+                String input = body.mid(x, y-x+closingLen);
+                System.debug(input);
+                String mergeField = body.mid(x+openingLen, y-x-openingLen);
+                System.debug(mergeField);
+                String obj = mergeField.substringBefore('.');
+                String field = mergeField.substringAfter('.');
+                System.debug('Object: ' + obj + ' -- Field: ' + field);
+    
+                //Find the replacement value
+                String output;
+                String val;
+                if (obj == 'Account' && theAccount != null) { 
+                    val = String.valueOf(theAccount.get(String.valueOf(field)));
+                }
+                else if (obj == 'User' && theUser != null) { 
+                    val = (String)theUser.get(String.valueOf(field));
+                }
+    
+    
+                //If the field doesn't have a value, leave as what the oldBody has
+                if (val != null) output = String.valueOf(val);
+                else output = '<<' + String.valueOf(mergeField) + '>>';
+                System.debug('Input: ' + input + ' -- Output: ' + output);
+                body = body.replace(input, output);
+            }
+            //Return the body with merge fields populated 
+            System.debug('TextReplacementHandler::: populateMergeFields:: replaced body: ' + body); 
+            return body; 
+        }
+        return body; 
+    } //public string populateMergeFields(String body, String openingDelimiter, String closingDelimiter)
+
+} //public class TextReplacementHandler

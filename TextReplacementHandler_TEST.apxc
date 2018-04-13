@@ -1,0 +1,100 @@
+/** TextReplacementHandler_TEST 
+** Created by Krizia on 04/13/2018
+** 
+** Test class for TextReplacementHandler 
+** 
+** Prerequisites / Items to Note when using: 
+** 
+**/
+@isTest
+private class TextReplacementHandler_TEST {
+    
+    @testSetup static void insertData() {
+        Id profileId = [SELECT Id FROM Profile WHERE Name = 'System Administrator' LIMIT 1].Id; 
+        User u = new User(
+            FirstName = 'Max', 
+            LastName = 'Buck', 
+            Title = 'Old Boy', 
+            Username = 'maximus@revcult.com', 
+            Email = 'maximus@revcult.com', 
+            Alias = 'goodboi', 
+            CommunityNickname = 'max', 
+            TimeZoneSidKey = 'America/Los_Angeles', 
+            LocaleSidKey = 'en_US', 
+            EmailEncodingKey = 'UTF-8', 
+            ProfileId = profileId, 
+            LanguageLocaleKey = 'en_US'
+        ); 
+        INSERT u; 
+        Account a = new Account(
+        	Name = 'Drover Industries', 
+            OwnerId = u.Id
+        ); 
+        INSERT a; 
+    } //@testSetup static void insertData()
+    
+    
+    
+    /** Positive Test 
+    ** Convert merge fields into their actual values 
+    **/
+    @isTest static void textReplacementHandler_PTest() { 
+        //Test all methods with positive outcome 
+        TextReplacementHandler trh = new TextReplacementHandler([SELECT Id FROM Account LIMIT 1].Id); 
+        String replaceMe = 'This is what needs to get replaced with the Account Name: {!Account.Name} ' + 
+            'and this is what needs to get replaced with the Owner name: {!User.Name} and again here we ' + 
+            'will have the Account Name: {!Account.Name}. '; 
+        String replaced = ''; 
+        replaced = trh.populateMergeFields(replaceMe, '{!', '}'); 
+        System.debug(replaceMe); 
+        System.debug(replaced); 
+        
+        System.assert(replaceMe != replaced);  
+    } //@isTest static void textReplacementHandler_PTest()     
+    
+    
+    
+    /** Positive Fail Test 
+    ** Convert merge fields into their actual values - minus one which is not populated in the Account
+    **/
+    @isTest static void textReplacementHandler_PFTest() { 
+        //Test all methods with positive outcome showing a merge field was not merged  
+        TextReplacementHandler trh = new TextReplacementHandler([SELECT Id FROM Account LIMIT 1].Id); 
+        String replaceMe = 'This is what needs to get replaced with the Account Name: {!Account.Name} ' + 
+            'and this is what needs to get replaced with the Owner name: {!User.Name} and again here we ' + 
+            'will have the Account Name: {!Account.Name}. ' + 
+            'Here is the addition where we want the Account Number, but it does not exist: {!Account.AccountNumber}. ' + 
+            'That should be replaced with itself and different delimiters. '; 
+        String replaced = ''; 
+        replaced = trh.populateMergeFields(replaceMe, '{!', '}'); 
+        System.debug(replaceMe); 
+        System.debug(replaced); 
+        
+        System.assert(replaceMe != replaced);  
+        System.assert(replaced.contains('<<Account.AccountNumber>>')); 
+    } //@isTest static void textReplacementHandler_PFTest()
+    
+    
+    
+    /** Negative Test 
+    ** Expecting an Account Id but receiving a User Id, so it will fail 
+    **/
+    @isTest static void textReplacementHandler_NTest() { 
+        //Test all methods with negative outcome 
+        TextReplacementHandler trh = new TextReplacementHandler([SELECT Id FROM User LIMIT 1].Id); 
+        String replaceMe = 'This is what needs to get replaced with the Account Name: {!Account.Name} ' + 
+            'and this is what needs to get replaced with the Owner name: {!User.Name} and again here we ' + 
+            'will have the Account Name: {!Account.Name}. ' + 
+            'Here is the addition where we want the Account Number, but it does not exist: {!Account.AccountNumber}. ' + 
+            'That should be replaced with itself and different delimiters. '; 
+        String replaced = ''; 
+        replaced = trh.populateMergeFields(replaceMe, '{!', '}'); 
+        System.debug(replaceMe); 
+        System.debug(replaced); 
+        
+        System.assert(replaceMe != replaced);  
+        System.assert(replaced.contains('<<Account.Name>>')); 
+        System.assert(replaced.contains('<<User.Name>>')); 
+        System.assert(replaced.contains('<<Account.AccountNumber>>')); 
+    } //@isTest static void textReplacementHandler_NTest() 
+} //private class TextReplacementHandler_TEST
