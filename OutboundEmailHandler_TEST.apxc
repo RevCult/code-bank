@@ -1,0 +1,173 @@
+/** OutboundEmailHandler_TEST 
+** Created by Krizia on 04/17/2018
+** 
+** Test class for OutboundEmailHandler: 91% 
+** 
+** Prerequisites / Items to Note when using: 
+Fill in objects to include all fields your org requires 
+Have an outbound email address in place as described in the OutboundEmailHandler 
+** 
+**/
+@isTest
+private class OutboundEmailHandler_TEST {
+    
+    
+	@testSetup static void insertData() {
+        Id profileId = [SELECT Id FROM Profile WHERE Name = 'System Administrator' LIMIT 1].Id; 
+        User u = new User(
+            FirstName = 'Max', 
+            LastName = 'Buck', 
+            Title = 'Old Boy', 
+            Username = 'maximus@revcult.com', 
+            Email = 'maximus@revcult.com', 
+            Alias = 'goodboi', 
+            CommunityNickname = 'max', 
+            TimeZoneSidKey = 'America/Los_Angeles', 
+            LocaleSidKey = 'en_US', 
+            EmailEncodingKey = 'UTF-8', 
+            ProfileId = profileId, 
+            LanguageLocaleKey = 'en_US'
+        ); 
+        INSERT u; 
+        Account a = new Account(
+        	Name = 'Drover Industries', 
+            OwnerId = u.Id
+        ); 
+        INSERT a; 
+        Contact cont = new Contact(
+                LastName = 'Buck',
+                Email = 'test@tester.com',
+                Account = a
+        );
+        INSERT cont;
+        Case c = new Case(
+                AccountId = a.Id,
+                ContactId = cont.Id
+        );
+        INSERT c;
+        //Attachments
+        Attachment att = new Attachment(
+                Name = 'attachment',
+                ParentId = c.Id,
+                Body = Blob.valueOf('Just a regular ole attachment'));
+        INSERT att;
+    } //@testSetup static void insertData()
+    
+    
+    
+    /** Positive Test 
+    ** Send & create email 
+    **/
+    @isTest static void sendEmail_PTest() { 
+        User thisUser = [SELECT Id FROM User WHERE Id = :UserInfo.getUserId()];
+        
+        System.runAs(thisUser){
+            //sObject 
+            Account a = [SELECT Id FROM Account LIMIT 1]; 
+            //String[] Recipients 
+            List<String> recipients = new List<String>(); 
+            recipients.add('test@test.com'); 
+            recipients.add('drover@revcult.com'); 
+            //Id TargetObjId 
+            Contact c = [SELECT Id FROM Contact LIMIT 1]; 
+            //String templateString, 
+            String templateString = null; 
+            //Template 
+            EmailTemplate et = new EmailTemplate (
+                DeveloperName = 'Max', 
+                FolderId = UserInfo.getUserId(),
+                TemplateType= 'Text', 
+                Name = 'Max', 
+                isActive = true
+            ); 
+            INSERT et; 
+            //Boolean saveAsActivity 
+            Boolean saveAsActivity = false; 
+            //Boolean setReplyTo 
+            Boolean setReplyTo = false; 
+            //String replyToEmailAddress
+            String replyToEmailAddress = null; 
+            //String htmlBody 
+            String htmlBody = null; 
+            //String textBody
+            String textBody = 'This is the text body.'; 
+            //String subject 
+            String subject = 'Subby'; 
+            //List<Messaging.EmailFileAttachment> efa
+            List<Messaging.EmailFileAttachment> efa = new List<Messaging.EmailFileAttachment>(); 
+            //List<ContentDocumentLink> cdlList 
+            List<ContentDocumentLink> cdlList = new List<ContentDocumentLink>(); 
+    
+            
+            //Send single email without template, replyTo, and attachments
+            Boolean success = OutboundEmailHandler.sendSingleEmail(a, recipients, c.Id, templateString, saveAsActivity, setReplyTo, replyToEmailAddress, htmlBody, textBody, subject);  
+            System.debug('Success: ' + success); 
+            System.assert(success == true); 
+            
+            
+            //Create single email without template, replyTo, and attachments
+            Messaging.SingleEmailMessage e = OutboundEmailHandler.createEmail(a, recipients, c.Id, templateString, saveAsActivity, setReplyTo, replyToEmailAddress, htmlBody, textBody, subject);  
+            System.debug('email: ' + e); 
+            System.assert(e != null); 
+            
+            
+            //Send single email without template, with replyTo and attachments 
+            saveAsActivity = true; 
+            setReplyTo = true; 
+            replyToEmailAddress = 'drover@revcult.com'; 
+            Attachment att = [SELECT Id, Name, Body FROM Attachment LIMIT 1];
+            Messaging.EmailFileAttachment attachME = new Messaging.EmailFileAttachment();
+            attachME.setBody(att.Body);
+            attachME.setFileName(att.Name);
+            efa.add(attachME);
+            ContentVersion cv = new ContentVersion();
+            //    cv.ContentDocumentId = contentDocumentId;
+            cv.VersionData = Blob.valueOf('Hello');
+            cv.Title = 'Content';
+            cv.ContentLocation = 'S';
+            cv.PathOnClient = 'Content.jpg';
+            INSERT cv;
+            ContentDocumentLink cdl = new ContentDocumentLink();
+            cdl.ContentDocumentId = [SELECT Id, ContentDocumentId FROM ContentVersion WHERE Id = :cv.Id].ContentDocumentId;
+            cdl.LinkedEntityId = c.Id;
+            cdl.ShareType = 'V';
+            INSERT cdl;
+            List<ContentDocumentLink> theCDLlist = new List<ContentDocumentLink>(); 
+            theCDLlist.add(cdl); 
+            System.debug(theCDLlist); 
+            Boolean success2 = OutboundEmailHandler.sendEmailWithAttachments(a, recipients, c.Id, templateString, saveAsActivity, setReplyTo, replyToEmailAddress, htmlBody, textBody, subject, efa, theCDLlist);  
+            System.debug('Success2: ' + success2); 
+            System.assert(success2 == true); 
+            
+            //Create single email without template, with replyTo and attachments
+            Messaging.SingleEmailMessage e2 = OutboundEmailHandler.createEmailWithAttachments(a, recipients, c.Id, templateString, saveAsActivity, setReplyTo, replyToEmailAddress, htmlBody, textBody, subject, efa, theCDLlist);  
+            System.debug('email2: ' + e2); 
+            System.assert(e2 != null); 
+            
+            
+            //Send multiple 
+            List<Messaging.SingleEmailMessage> allEmails = new List<Messaging.SingleEmailMessage>(); 
+            allEmails.add(e); 
+            allEmails.add(e2); 
+            Boolean success3 = OutboundEmailHandler.sendEmails(allEmails); 
+            System.debug('Success3: ' + success3); 
+            System.assert(success3 == true);  
+            
+            
+            //With a template 
+            Boolean success4 = OutboundEmailHandler.sendSingleEmail(a, recipients, c.Id, et.DeveloperName, saveAsActivity, setReplyTo, replyToEmailAddress, htmlBody, textBody, subject);  
+            System.debug('Success4: ' + success4); 
+            System.assert(success4 == true); 
+        }
+    } //@isTest static void sendEmail_PTest()
+    
+    
+    
+    
+    @isTest static void emailValidity_PNTests() {
+        Boolean email1 = OutboundEmailHandler.isEmailValid('t@t'); 
+        System.assert(email1 == false); 
+        Boolean email2 = OutboundEmailHandler.isEmailValid('me@revcult.com'); 
+        System.assert(email2 == true); 
+    } //@isTest static void emailValidity_PNTests()
+}

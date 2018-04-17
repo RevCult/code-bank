@@ -1,0 +1,298 @@
+/** OutboundEmailHandler
+** Created by Krizia on 04/16/2018
+** 
+** Purpose of Class: 
+** Send an email with or without attachments and with or without an email template
+** 
+** Prerequisites / Items to Note when using: 
+** Must have a verified outbound email address  
+** Change the name of the Outbound Email Address below in order to use the one available for the org as well as the Local Part
+** 
+** Steps to Implement in Setup 
+** Setup -> Administer -> Email Administration -> Deliverability -> Access level to "All Email" 
+** 												-> Organization-Wide Email Addresses -> Add, Set to All Profiles, and verify the email address (must have access to the account to click a link) 
+**
+How to call: 
+	Call any static function that sends an email by only catching the return success boolean. 
+	For mass emails, catch the return single message into a List then send to the mass email sender method of sendEmails. 
+**
+**/
+public class OutboundEmailHandler {
+
+    public static string outboundEmailAddressName = 'Outbound Email Address'; 
+    public static string outboundEmailLocalPart = 'email'; 
+    
+    
+    
+    /** Send an email from a Template without Attachments & with a specific reply to address or not 
+    ** Input: the object to become the whatId, recipients as a String array, the target object Id, the name of the Email Template, whether or not it needs to be saved as an Activity, and if the specific Reply To needs to be used (generally an Email Service Handler email), string bodies if necessary otherwise null
+    ** Output: true or false depending on successful sending of the email 
+    **/
+    public static Boolean sendSingleEmail(sObject s, String[] toRecipients, Id TargetObjId, String templateString, Boolean saveAsActivity, Boolean setReplyTo, String replyToEmailAddress, String htmlBody, String textBody, String subject) {
+
+        //Common variables
+		Messaging.SingleEmailMessage emailToSend = new Messaging.SingleEmailMessage(); 
+        emailToSend = commonEmail(s, toRecipients, TargetObjId, templateString, saveAsActivity, setReplyTo, ReplyToEmailAddress, htmlBody, textBody, subject); 
+
+        //Now send email
+        Boolean sent = sendEmail(emailToSend); 
+        System.debug('OutboundEmailHandler::: sendSingleEmail:: The email was sent: ' + sent); 
+        return sent; 
+    } //public static Boolean sendSingleEmail(sObject s, String[] toRecipients, Id TargetObjId, String templateString, Boolean saveAsActivity, Boolean setReplyTo, String replyToEmailAddress, String htmlBody, String textBody)
+
+
+
+	/** Return an email from a Template or not without Attachments & with a specific reply to address or not 
+    ** Input: the object to become the whatId, recipients as a String array, the target object Id, the name of the Email Template, whether or not it needs to be saved as an Activity, and if the specific Reply To needs to be used (generally an Email Service Handler email), body & subject if necessary otherwise null
+    ** Output: the created email in order to be sent in bulk with a List of emails 
+	** collect into: 
+        List<Messaging.SingleEmailMessage> allEmails = new List<Messaging.SingleEmailMessage>(); 
+	** to send in mass. 
+    **/
+    public static Messaging.singleEmailMessage createEmail(sObject s, String[] toRecipients, Id TargetObjId, String templateString, Boolean saveAsActivity, Boolean setReplyTo, String replyToEmailAddress, String htmlBody, String textBody, String subject) {
+
+        //Compose Email
+        Messaging.SingleEmailMessage emailForMass = new Messaging.SingleEmailMessage();
+        emailForMass = commonEmail(s, toRecipients, TargetObjId, templateString, saveAsActivity, setReplyTo, replyToEmailAddress, htmlBody, textBody, subject); 
+       
+        return(emailForMass); 
+    } //public static Messaging.SingleEmailMessage createEmail(sObject s, String[] toRecipients, Id TargetObjId, String templateString, Boolean saveAsActivity, Boolean setReplyTo, String replyToEmailAddress, String htmlBody, String textBody, String subject)
+
+
+    
+	/** Send an email with Attachments
+    ** Input: the object to become the whatId, recipients as a String array, the target object Id, the name of the Email Template, whether or not it needs to be saved as an Activity, and if the specific Reply To needs to be used (generally an Email Service Handler email), body & subject if necessary otherwise null, list of email attachments and content document links 
+    ** Output: boolean for success 
+    **/
+    public static Boolean sendEmailWithAttachments(sObject s, String[] toRecipients, Id TargetObjId, String templateString, Boolean saveAsActivity, Boolean setReplyTo, String replyToEmailAddress, String htmlBody, String textBody, String subject, List<Messaging.EmailFileAttachment> efa, List<ContentDocumentLink> cdlList) {
+
+        //Compose Email
+        Messaging.SingleEmailMessage emailToSend = new Messaging.SingleEmailMessage();
+        emailToSend = commonEmail(s, toRecipients, TargetObjId, templateString, saveAsActivity, setReplyTo, replyToEmailAddress, htmlBody, textBody, subject); 
+        
+        //Attachments 
+        //Add ContentDocument attachments if there are any
+        System.debug('OutboundEmailHandler::: sendEmailWithAttachments:: efa: ' + string.valueOf(efa));
+        System.debug('OutboundEmailhandler::: sendEmailWithAttachments:: cdlList: ' + string.valueOf(cdlList));
+        if (cdlList != null) {
+            Set<Id> contentDocIds = new Set<Id>();
+            for(ContentDocumentLink contentDocLink : cdlList) {
+                contentDocIds.add(contentDocLink.ContentDocumentId);
+            }
+            List<Id> contentDocIdList = new List<Id>(contentDocIds);
+
+            // Get the actual files
+            List<ContentVersion> contentVersions = new List<ContentVersion>();
+            contentVersions = [SELECT Id, ContentUrl, Title, FileType, VersionData, isLatest, ContentDocumentId
+                FROM ContentVersion
+                WHERE ContentDocumentId IN :contentDocIdList  AND  IsLatest = True ];
+
+            //add to emailAttachments
+            List<Attachment> attachmentList = new List<Attachment>();
+            for (ContentVersion con : contentVersions) {
+                Attachment at = new Attachment();
+                at.Body = con.VersionData;
+                at.Name = con.Title;
+                at.ContentType = 'File';
+                at.ParentId = s.Id;
+                attachmentList.add(at);
+            }
+            INSERT attachmentList;
+            for (Attachment att : attachmentList) {
+                Messaging.EmailFileAttachment attachME = new Messaging.EmailFileAttachment();
+
+                attachME.setBody(att.Body);
+                attachME.setFileName(att.Name);
+
+                efa.add(attachME);
+            }
+			DELETE attachmentList;
+        }
+        System.debug('OutboundEmailHandler::: sendEmailWithAttachments:: efa before sending: ' + string.valueOf(efa));
+		if (efa != null) {
+            emailToSend.setFileAttachments(efa);
+        }
+       
+        
+        //Now send email
+        Boolean sent = sendEmail(emailToSend); 
+        System.debug('OutboundEmailHandler::: sendEmailWithAttachments:: The email was sent: ' + sent);   
+        return sent; 
+    } //public static Boolean sendEmailWithAttachments(sObject s, String[] toRecipients, Id TargetObjId, String templateString, Boolean saveAsActivity, Boolean setReplyTo, String replyToEmailAddress, String htmlBody, String textBody, String subject, List<Messaging.EmailFileAttachment> efa, List<ContentDocumentLink> cdlList)
+
+    
+    
+	/** Create an email with Attachments
+    ** Input: the object to become the whatId, recipients as a String array, the target object Id, the name of the Email Template, whether or not it needs to be saved as an Activity, and if the specific Reply To needs to be used (generally an Email Service Handler email), body & subject if necessary otherwise null, list of email attachments and content document links 
+    ** Output: the created email in order to be sent in bulk with a List of emails 
+	** collect into: 
+        List<Messaging.SingleEmailMessage> allEmails = new List<Messaging.SingleEmailMessage>(); 
+	** to send in mass. 
+    **/
+    public static Messaging.SingleEmailMessage createEmailWithAttachments(sObject s, String[] toRecipients, Id TargetObjId, String templateString, Boolean saveAsActivity, Boolean setReplyTo, String replyToEmailAddress, String htmlBody, String textBody, String subject, List<Messaging.EmailFileAttachment> efa, List<ContentDocumentLink> cdlList) {
+
+        //Compose Email
+        Messaging.SingleEmailMessage emailToReturn = new Messaging.SingleEmailMessage();
+        emailToReturn = commonEmail(s, toRecipients, TargetObjId, templateString, saveAsActivity, setReplyTo, replyToEmailAddress, htmlBody, textBody, subject); 
+        
+        //Attachments 
+        //Add ContentDocument attachments if there are any
+        System.debug('OutboundEmailHandler::: createEmailWithAttachments:: efa: ' + string.valueOf(efa));
+        System.debug('OutboundEmailhandler::: createEmailWithAttachments:: cdlList: ' + string.valueOf(cdlList));
+        if (cdlList != null) {
+            Set<Id> contentDocIds = new Set<Id>();
+            for(ContentDocumentLink contentDocLink : cdlList) {
+                contentDocIds.add(contentDocLink.ContentDocumentId);
+            }
+            List<Id> contentDocIdList = new List<Id>(contentDocIds);
+
+            // Get the actual files
+            List<ContentVersion> contentVersions = new List<ContentVersion>();
+            contentVersions = [SELECT Id, ContentUrl, Title, FileType, VersionData, isLatest, ContentDocumentId
+                FROM ContentVersion
+                WHERE ContentDocumentId IN :contentDocIdList  AND  IsLatest = True ];
+
+            //add to emailAttachments
+            List<Attachment> attachmentList = new List<Attachment>();
+            for (ContentVersion con : contentVersions) {
+                Attachment at = new Attachment();
+                at.Body = con.VersionData;
+                at.Name = con.Title;
+                at.ContentType = 'File';
+                at.ParentId = s.Id;
+                attachmentList.add(at);
+            }
+            INSERT attachmentList;
+            for (Attachment att : attachmentList) {
+                Messaging.EmailFileAttachment attachME = new Messaging.EmailFileAttachment();
+
+                attachME.setBody(att.Body);
+                attachME.setFileName(att.Name);
+
+                efa.add(attachME);
+            }
+			DELETE attachmentList;
+        }
+        System.debug('OutboundEmailHandler::: createEmailWithAttachments:: efa before sending: ' + string.valueOf(efa));
+		if (efa != null) {
+            emailToReturn.setFileAttachments(efa);
+        }
+       
+        return emailToReturn; 
+    } //public static Messaging.SingleEmailMessage createEmailWithAttachments(sObject s, String[] toRecipients, Id TargetObjId, String templateString, Boolean saveAsActivity, Boolean setReplyTo, String replyToEmailAddress, String htmlBody, String textBody, String subject, List<Messaging.EmailFileAttachment> efa, List<ContentDocumentLink> cdlList)
+    
+    
+
+	/** Return an email from a Template or not without Attachments & with a specific reply to address or not 
+    ** Input: the object to become the whatId, recipients as a String array, the target object Id, the name of the Email Template, whether or not it needs to be saved as an Activity, and if the specific Reply To needs to be used (generally an Email Service Handler email), html or plain text body if applicable (otherwise send null), subject if different 
+    ** Output: the created email in order to be further populated based on the original method selected 
+    **/
+    public static Messaging.singleEmailMessage commonEmail(sObject s, String[] toRecipients, Id TargetObjId, String templateString, Boolean saveAsActivity, Boolean setReplyTo, String replyToEmailAddress, String htmlBody, String textBody, String subject) {
+
+        //Common variables
+        ID orgWideEmailId = [SELECT Id FROM OrgWideEmailAddress WHERE DisplayName =: outboundEmailAddressname LIMIT 1].Id;
+        Id templateId;
+
+        
+        //Compose Email
+        Messaging.SingleEmailMessage email = new Messaging.SingleEmailMessage();
+        System.debug('OutboundEmailHandler::: commonEmail:: toRecipients: ' + string.valueOf(toRecipients));
+        //If there is a specific reply to address needed, set it to the general service handler or another email address to receive the reply 
+        if (setReplyTo == true) {
+            if (replyToEmailAddress != null && replyToEmailAddress != '') {
+                email.setReplyTo(replyToEmailAddress); 
+            } 
+            else {
+                EmailServicesAddress domainName = [SELECT EmailDomainName FROM EmailServicesAddress WHERE LocalPart =: outboundEmailLocalPart]; 
+                String caseEmailService = outboundEmailLocalPart + '@' + string.valueOf(domainName.EmailDomainName);
+                email.setReplyTo(caseEmailService); 
+            }
+        }
+        //Get the specified Email Template
+        if (templateString != null && templateString != '') {
+            try {
+                templateId = [SELECT Id FROM EmailTemplate WHERE Name =: TemplateString].Id;
+        		email.setTemplateId(templateId);
+            } catch (Exception e) {
+                System.debug('OutboundEmailHandler::: Exception in commonEmail'); 
+                System.debug(e); 
+                System.debug(e.getLineNumber()); 
+            }
+            System.debug('OutboundEmailHandler::: commonEmail templateId: ' + string.valueOf(templateId));
+        }
+        else {
+            if (htmlBody != null && htmlBody != '') email.setHtmlBody(htmlBody); 
+            else email.setPlainTextBody(textBody); 
+        } 
+        if (subject != null && subject != '') email.setSubject(subject); 
+        email.setToAddresses(toRecipients);
+        email.setOrgWideEmailAddressId(orgWideEmailId);
+        email.setTargetObjectId(targetObjId);
+        email.setWhatId(s.Id);
+        email.setSaveAsActivity(saveAsActivity);      // save email as activity on the targetObjId (i.e. Case). Note activity can't be saved on Users
+
+        System.debug(LoggingLevel.INFO, '** entered commonEmail, to:' + toRecipients + 'templateId:' + templateId + ' targetObjId:' + targetObjId + ' whatId:' + s.Id + ' orgWideEmailId: ' + orgWideEmailId); 
+        System.debug(email); 
+		return(email); 
+    } //public static Messaging.SingleEmailMessage commonEmail(sObject s, String[] toRecipients, Id TargetObjId, String templateString, Boolean saveAsActivity, Boolean setReplyTo, String replyToEmailAddress, String htmlBody, String textBody, String subject)
+
+    
+    /** Actually send the single email 
+    ** Input: Messaging.SingleEmailMessage to be sent
+    ** Output: boolean for whether or not the email was sent 
+    **/
+    public static Boolean sendEmail(Messaging.SingleEmailMessage email) { 
+        if (email != null) {
+            try {
+                Messaging.sendEmail(new Messaging.SingleEmailMessage[] { email });
+                System.debug('OutboundEmailHandler::: sendEmail successful');
+                return(true);
+            } catch (EmailException e) {
+                System.debug('OutboundEmailHandler::: Exception in sendEmail');
+                System.debug(e);
+                System.debug(e.getLineNumber()); 
+                return(false);
+            }
+        }
+        return false; 
+    } //public static Boolean sendEmail(Messaging.SingleEmailMessage email)
+    
+    
+    
+    /** Actually send a list of emails
+    ** Input: List<Messaging.SingleEmailMessage> to be sent
+    ** Output: boolean for whether or not the emails were sent 
+    **/
+    public static Boolean sendEmails(List<Messaging.SingleEmailMessage> emails) { 
+        if (emails != null) {
+            try {
+                Messaging.sendEmail(emails);
+                System.debug('OutboundEmailHandler::: sendEmails successful');
+                return(true);
+            } catch (EmailException e) {
+                System.debug('OutboundEmailHandler::: Exception in sendEmails');
+                System.debug(e);
+                System.debug(e.getLineNumber()); 
+                return(false);
+            }
+        }
+        return false; 
+    } //public static Boolean sendEmails(List<Messaging.SingleEmailMessage> emails)
+    
+    
+    
+    /** Check whether or not an email is in a valid format for sending 
+     * Input: what should be an email address 
+     * Output: boolean indicating whether it is in a valid format (use when creating your list of recipients if wanted)
+    **/
+    public static boolean isEmailValid(String userEmail) {
+        Boolean flag = false;
+        if(userEmail != null) {
+            String  emailRegex      = '([a-zA-Z0-9_\\-\\.]+)@((\\[a-z]{1,3}\\.[a-z]{1,3}\\.[a-z]{1,3}\\.)|(([a-zA-Z0-9\\-]+\\.)+))([a-zA-Z]{2,4}|[0-9]{1,3})';
+            Pattern emailPattern    = Pattern.compile(emailRegex);
+            Matcher emailMatcher    = emailPattern.matcher(userEmail.trim());
+            flag                    =  emailMatcher.matches();
+        }
+        return flag;
+    } //public static boolean isEmailValid(String userEmail)
+}
