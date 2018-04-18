@@ -1,7 +1,7 @@
 /** TextReplacementHandler_TEST 
 ** Created by Krizia on 04/13/2018
 ** 
-** Test class for TextReplacementHandler 
+** Test class for TextReplacementHandler: 99% 
 ** 
 ** Prerequisites / Items to Note when using: 
 ** 
@@ -27,7 +27,7 @@ private class TextReplacementHandler_TEST {
         ); 
         INSERT u; 
         Account a = new Account(
-        	Name = 'Drover Industries', 
+            Name = 'Drover Industries', 
             OwnerId = u.Id
         ); 
         INSERT a; 
@@ -97,4 +97,20 @@ private class TextReplacementHandler_TEST {
         System.assert(replaced.contains('<<User.Name>>')); 
         System.assert(replaced.contains('<<Account.AccountNumber>>')); 
     } //@isTest static void textReplacementHandler_NTest() 
+    
+    
+    
+    /** Positive Test 
+    ** Based on a record Id, try to figure out the object type (standard object) 
+    **/ 
+    @isTest static void getObjectName_PTest() {
+        //Should get back Contact
+        Contact c = new Contact( 
+            FirstName = 'Drover', 
+            LastName = 'Buck'
+        ); 
+        INSERT c; 
+        String cName = TextReplacementHandler.getObjectName(c.Id); 
+        System.assert('Contact' == cName); 
+    } //@isTest static void getObjectName_PTest
 } //private class TextReplacementHandler_TEST
