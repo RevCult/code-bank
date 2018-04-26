@@ -1,0 +1,193 @@
+/** EmailServiceHandler
+** Created by Krizia on 04/18/2018
+** 
+** Purpose of Class: 
+** Capture emails sent to Salesforce using the specified inbound Email Address 
+** Can set the reply to address of outbound emails in the OutboundEmailHandler to the Email Address capatured in the EmailServiceHandler 
+** 
+** Prerequisites / Items to Note when using: 
+** Change the name of the Outbound Email Address below in order to use the one available for the org as well as the Local Part 
+** Must deploy code commented out to Production, create the Email Service Email Address (select this class), then redeploy with code uncommented 
+** 
+** Steps to Implement in Setup 
+** Setup -> Build -> Develop -> Email Services -> New Email Service -> Give it a Name, select EmailServiceHandler as the Apex Class, and mark Active
+											-> click Save and New Email Address 
+**
+How to call: 
+	Gets called when an inbound email goes to the address specified above. 
+	*Can be used for multiple inbound email addresses if they need to have different behaviors. 
+**
+**/
+global class EmailServiceHandler implements Messaging.InboundEmailHandler {
+    
+    public static string inboundEmailAddressName = 'General'; 
+    public static string inboundEmailLocalPart = 'general';  
+    public static string outboundEmailAddressName = 'Outbound Email Address'; 
+
+    global Messaging.InboundEmailResult handleInboundEmail(Messaging.InboundEmail email, Messaging.InboundEnvelope envelope) { 
+        
+        //Objects that should be referenced
+        sObject s;
+        ID orgWideEmailId = [SELECT Id FROM OrgWideEmailAddress WHERE DisplayName =: outboundEmailAddressName LIMIT 1].Id;
+        EmailServicesAddress domainName = [SELECT EmailDomainName FROM EmailServicesAddress WHERE LocalPart =: inboundEmailLocalPart];
+        String emailAddress = inboundEmailLocalPart + '@' + string.valueOf(domainName.EmailDomainName);
+
+        Messaging.InboundEmailResult result = new Messaging.InboundEmailResult();
+        System.debug('EmailServiceHandler::: handleInboundEmail');
+
+        try {
+            System.debug('EmailServiceHandler::: handleInboundEmail:: TRY');
+            s = EmailServiceHandler.connectToRecord(email.subject, email); 
+            
+            //**Handle case of record not existing**//
+            if (s == null) {
+                result.success = false;
+                result.message = 'Invalid record, unable to process request.';
+                return result;
+            }
+            
+			//Record exists, handle it 
+			EmailMessage em = new EmailMessage(
+                        RelatedToId = s.Id,
+                        Subject = email.subject,
+                        FromAddress = email.fromAddress,
+                        Incoming = true
+            );
+            System.debug('EmailServiceHandler::: handleInboundEmail:: creating new Inbound Email record: ' + em);
+            
+            //Get all email addresses involved and save 
+            if (email.toAddresses != null) {
+                List<String> toA = new List<String>();
+                toA = email.toAddresses;
+                if (toA.size() > 0) {
+                    for (integer i = 0; i < toA.size(); i++) {
+                        if (em.ToAddress == null) { em.ToAddress = toA[i]; }
+                        else { em.ToAddress = em.ToAddress + '; ' + toA[i]; }
+                    }
+                }
+            }
+            if (email.ccAddresses != null) {
+                List<String> ccA = new List<String>();
+                ccA = email.ccAddresses;
+                if (ccA.size() > 0) {
+                    for (integer i = 0; i < ccA.size(); i++) {
+                        if (em.CcAddress == null) { em.CcAddress = ccA[i]; } 
+                        else { em.CcAddress = em.CcAddress + '; ' + ccA[i]; }
+                    }
+                }
+            } //All email addresses saved 
+
+            if (email.plainTextBody != null) {
+                em.TextBody = email.plainTextBody;
+            }
+            if (em.Subject != null) {
+                insert em;
+                
+                EmailMessage em2 = [SELECT Id, Subject, TextBody FROM EmailMessage WHERE Id =: em.Id LIMIT 1];
+                //Attach attachments if there are any 
+                em2 = handleAttachments(em2, email); 
+                
+                result.success = true;
+                System.debug('EmailServiceHandler::: handleInboundEmail:: result success - ' + string.valueOf(result.success));
+        		System.debug('EmailMessage: ' + em2);
+            }
+        }
+        catch (Exception e) {
+            System.debug(e);
+            result.success = false;
+            result.message = 'Unable to process request.';
+        }
+ 
+        return result;
+    } //global Messaging.InboundEmailResult handleInboundEmail(Messaging.InboundEmail email, Messaging.InboundEnvelope envelope)
+
+    
+    
+    /** Use the subject of the email to figure out which record it should be tied to (have multiple versions for different email addresses etc for organization)
+    ** Input: subject line of the inbound email 
+    ** Output: make the connections within this method and return the record 
+    **/
+    public static sObject connectToRecord(String subject, Messaging.InboundEmail email){
+        string subj = email.subject.trim();
+        Integer len = subj.length();
+        Integer whitespace = subj.lastIndexOf(' ');
+        Integer index = whitespace + 1;
+
+        //EXAMPLE: The last characters of the Email Subject are the record Id
+        subj = subj.substring(index, len);
+        system.debug(subj);
+        
+        if ([SELECT count() FROM Account WHERE Id =: subj] == 0) {
+        	System.debug('EmailServiceHandler::: handleInboundEmail:: record does not exist'); 
+            return null; 
+		}
+        else {
+            System.debug('EmailServiceHandler::: handleInboundEmail:: record exists ');
+            //Add the fields you need here (consider calling TextReplacementHandler.getAllFields to get all fields on the object)
+            sObject s = [SELECT Id 
+                    FROM Account
+                    WHERE Id =: subj
+                    LIMIT 1];
+            System.debug('EmailServiceHandler::: handleInboundEmail:: sObject: ' + string.valueOf(s));
+            return s; 
+        }
+    } //public static sObject connectToRecord(String subject, Messaging.InboundEmail email) 
+
+    
+    
+    /** Add any attachments to the EmailMessage that came in with the email
+    ** Input: EmailMessage and the original Email
+    ** Output: EmailMessage with the attachments
+    **/
+	public static EmailMessage handleAttachments(EmailMessage em, Messaging.InboundEmail email) {
+        // Save attachments, if any
+        List<Attachment> attachList = new List<Attachment>();
+        System.debug('EmailServiceHandler::: handleAttachments:: check for attachments');
+        if (email.textAttachments == null) {
+            System.debug('EmailServiceHandler::: handleAttachments:: NO text attachments');
+        }
+        else {
+            for (Messaging.Inboundemail.TextAttachment tAttachment : email.textAttachments) {
+                System.debug('textAttachments');
+                
+                //Activity attachment
+                Attachment attachment2 = new Attachment();
+                attachment2.Name = tAttachment.fileName;
+                attachment2.Body = Blob.valueOf(tAttachment.body);
+                attachment2.ContentType = 'File';
+                attachment2.ParentId = em.Id;
+                attachment2.Description = 'Attachment from Email Response';
+                attachList.add(attachment2);
+            }
+            // Insert attachments, if any
+            if (attachList.size() > 0) {
+                insert attachList;
+                System.debug('EmailServiceHandler::: handleAttachments:: insert text attachments');
+            }
+        }
+        if (email.binaryAttachments == null) {
+            System.debug('EmailServiceHandler::: handleAttachments:: NO binary attachments');
+        }
+        else {
+            List<Attachment> attachList2 = new List<Attachment>();
+            for (Messaging.Inboundemail.BinaryAttachment bAttachment : email.binaryAttachments) {
+                
+                //Activity attachment
+                Attachment attachment2 = new Attachment();
+                attachment2.Name = bAttachment.fileName;
+                attachment2.Body = bAttachment.body;
+                attachment2.Description = 'Attachment from Email Response';
+                attachment2.ParentId = em.Id;
+                System.debug(attachment2.Name);
+                attachList2.add(attachment2);
+            }
+            // Insert attachments, if any
+            if (attachList2.size() > 0) {
+                insert attachList2;
+                System.debug('EmailServiceHandler::: handleAttachments:: insert binary attachments');
+            }
+        }
+        return em; 
+	} //public static sObject handleAttachments(sObject s, EmailMessage em, Messaging.InboundEmail email)
+    
+}

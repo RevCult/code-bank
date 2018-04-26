@@ -1,0 +1,94 @@
+/** EmailServiceHandler_TEST 
+** Created by Krizia on 04/18/2018
+** 
+** Test class for EmailServiceHandler: 96% 
+** 
+** Prerequisites / Items to Note when using: 
+Fill in objects to include all fields your org requires 
+Have an inbound Email Address set up as described in the EmailServiceHandler 
+** 
+**/
+@isTest
+public class EmailServiceHandler_TEST {
+    
+    @TestSetup
+    public static void setup() {
+        Account a = new Account(
+        	Name = 'Maximum Drover Incorporated'
+        );
+        INSERT a; 
+        Contact c = new Contact(
+        	FirstName = 'Max', 
+            LastName = 'Buck', 
+            Title = 'CEO', 
+            Email = 'maximumcuteness@mdinc.com'
+        ); 
+        INSERT c; 
+    }
+
+
+    
+    /** Positive & Negative Test 
+    ** Receive inbound email
+    **/
+    @isTest
+    public static void handleInboundEmail_PNTest() {
+        Account a = [SELECT Id, Name FROM Account LIMIT 1]; 
+        Contact c = [SELECT Id, FirstName, LastName, Email FROM Contact LIMIT 1]; 
+        System.debug('EmailServiceHandler_Test::: ' + string.valueOf(a) + ' -- ' + string.valueOf(c));
+
+
+        //Create a new email and envelope object
+        Messaging.InboundEmail email = new Messaging.InboundEmail() ;
+        Messaging.InboundEnvelope env = new Messaging.InboundEnvelope();
+        Messaging.InboundEmail email2 = new Messaging.InboundEmail() ;
+        Messaging.InboundEnvelope env2 = new Messaging.InboundEnvelope();
+
+        //Setup the data for the email
+        email.subject = 'This is a test: ' + string.valueOf(a.Id);
+        email.fromName = c.LastName;
+        email.fromAddress = c.Email;
+        email.plainTextBody = 'I am a test';
+        List<String> ccAddresses = new List<String>();
+        ccAddresses.add('test@mistertesty.com');
+        ccAddresses.add('test2@mistertesty.com');
+        email.ccAddresses = ccAddresses;
+        List<String> toAddresses = new List<String>();
+        toAddresses.add('test3@misstesty.com');
+        toAddresses.add('test4@misstesty.com');
+        email.toAddresses = toAddresses;
+        env.fromAddress = c.Email;
+        email2.subject = 'does not exist';
+        email2.fromName = c.LastName;
+        email2.fromAddress = c.Email;
+        email2.plainTextBody = 'I am a test that will not work';
+        env2.fromAddress = c.Email;
+
+        //Add an attachment
+        Messaging.InboundEmail.BinaryAttachment attachment = new Messaging.InboundEmail.BinaryAttachment();
+        attachment.body = blob.valueOf('my attachment text');
+        attachment.fileName = 'textfile.txt';
+        attachment.mimeTypeSubType = 'text/plain';
+        email.binaryAttachments = new Messaging.inboundEmail.BinaryAttachment[] { attachment };
+        Messaging.InboundEmail.TextAttachment attachment2 = new Messaging.InboundEmail.TextAttachment();
+        attachment2.body = 'my second attachment text';
+        attachment2.fileName = 'textfile2.txt';
+        attachment2.mimeTypeSubType = 'text/plain';
+        email.textAttachments = new Messaging.inboundEmail.TextAttachment[] { attachment2 };
+
+
+        EmailServiceHandler emailCase = new EmailServiceHandler();
+        System.debug('EmailServiceHandler_Test  ' + string.valueOf(c));
+        //Call the email service class and test it with the data in the testMethod
+        test.startTest();
+        Messaging.InboundEmailResult r1 = emailCase.handleInboundEmail(email, env);
+        a.AccountNumber = 'MD583290894320'; 
+        UPDATE a;
+        Messaging.InboundEmailResult r2 = emailCase.handleInboundEmail(email2, env2);
+        test.stopTest();
+        System.assertEquals(true, r1.success);
+        System.assertEquals(false, r2.success);
+        //Fails because the subject line does not include the record Id 
+    } //static testMethod void handleInboundEmail_PNTest()
+
+}
