@@ -1,0 +1,10 @@
+<apex:page controller="PDFCombinerController" applyBodyTag="false" action="{!getPdf}">
+	<body height='100%'>
+		<apex:outputPanel rendered="{!shouldRender}">
+    	<apex:iframe src="/servlet/servlet.FileDownload?file={!attachmentId}" height="1000px" width="100%"/>
+		</apex:outputPanel>
+		<apex:outputPanel rendered="{!!shouldRender}">
+    	<apex:messages />
+		</apex:outputPanel>
+	</body>
+</apex:page>
